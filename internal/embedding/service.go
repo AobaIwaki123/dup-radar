@@ -1,6 +1,7 @@
 package embedding
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -34,7 +35,7 @@ func (client *VertexAIClient) CallAI(ctx context.Context, input string) (string,
         return "", err
     }
 
-    req, err := http.NewRequestWithContext(ctx, http.MethodPost, client.endpoint, jsonReqBody)
+    req, err := http.NewRequestWithContext(ctx, http.MethodPost, client.endpoint, bytes.NewReader(jsonReqBody))
     if err != nil {
         return "", err
     }
