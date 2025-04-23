@@ -63,18 +63,17 @@ graph TB
 ### 1. BigQuery テーブル & インデックス作成
 
 ```sql
-CREATE TABLE `myproj.github.issues_vectors` (
-  repo       STRING,
-  issue_id   INT64,
-  title      STRING,
-  body       STRING,
-  created_at TIMESTAMP,
-  embedding  ARRAY<FLOAT64>
-);
-
-CREATE VECTOR INDEX idx_issue_embedding
-ON `myproj.github.issues_vectors` (embedding)
-OPTIONS(index_type = 'IVF');
+CREATE TABLE
+  `myproj.github.issues_vectors` ( repo STRING,
+    issue_id INT64,
+    title STRING,
+    body STRING,
+    created_at TIMESTAMP,
+    embedding ARRAY<FLOAT64> );
+CREATE VECTOR INDEX
+  idx_issue_embedding
+ON
+  `myproj.github.issues_vectors` (embedding) OPTIONS(index_type = 'IVF');
 ```
 
 ### 2. シークレット設定
