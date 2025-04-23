@@ -11,5 +11,5 @@ gcp:
   project_id: zennaihackason-457315
   bq_dataset: dup_radar
   bq_table: issues_vectors
-  region: US
+  region: us-central1
   embedding_model: text-embedding-005
