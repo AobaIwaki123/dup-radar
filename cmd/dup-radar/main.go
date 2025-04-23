@@ -4,7 +4,7 @@ package main
 // -------------------------------------
 // - Receives GitHub issues.opened webhooks (HMAC‑SHA256 verified)
 // - Creates an embedding with Vertex AI text‑embedding‑005 (API Key or ADC)
-// - Searches BigQuery ML.DISTANCE for similar issues
+// - Searches BigQuery Vector Search for similar issues
 // - Comments top‑k similar issues if distance below threshold
 // - Stores the new issue vector back into BigQuery
 //
@@ -43,6 +43,13 @@ func main() {
 	ghClient := github.NewClient(ctx)
 	bqClient := storage.NewBQClient(ctx, cfg)
 	log.Printf("DEBUG: GitHub and BigQuery clients initialized")
+
+	// Ensure BigQuery table with vector search is ready
+	// log.Printf("DEBUG: Setting up BigQuery table with vector search capabilities")
+	// if err := bqClient.EnsureTableWithVectorSearch(ctx); err != nil {
+	// 	log.Fatalf("ERROR: Failed to create BigQuery table with vector search: %v", err)
+	// }
+	// log.Printf("DEBUG: BigQuery table with vector search is ready")
 
 	secret := os.Getenv("GITHUB_WEBHOOK_SECRET")
 	if secret == "" {

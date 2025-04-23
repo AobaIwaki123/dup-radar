@@ -1,15 +1,18 @@
 # configs/config.yaml
 server:
-  port: 8080          # ローカルポート
-  path: /webhook      # 受信パス（GitHub 設定と一致させる）
+  port: 8080 # ローカルポート
+  path: /webhook # 受信パス（GitHub 設定と一致させる）
 
 github:
-  similarity_threshold: 0.20   # 距離がこれ未満なら「重複候補」
-  top_k: 3                     # コメントに載せる件数
+  similarity_threshold: 0.20 # 距離がこれ未満なら「重複候補」
+  top_k: 3 # コメントに載せる件数
 
 gcp:
   project_id: zennaihackason-457315
   bq_dataset: dup_radar
   bq_table: issues_vectors
   region: us-central1
-  embedding_model: text-embedding-005
+  embedding_model: text-multilingual-embedding-002
+  vector_search:
+    distance_type: COSINE # Distance metric type (COSINE, DOT_PRODUCT, or EUCLIDEAN)
+    dimensions: 5 # Text multilingual embedding dimensions

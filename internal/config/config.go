@@ -23,6 +23,10 @@ type Config struct {
 		BQTable        string `yaml:"bq_table"`
 		Region         string `yaml:"region"`
 		EmbeddingModel string `yaml:"embedding_model"`
+		VectorSearch   struct {
+			Distance   string `yaml:"distance_type"` // COSINE, DOT_PRODUCT, or EUCLIDEAN
+			Dimensions int    `yaml:"dimensions"`    // Vector dimensions (e.g., 768)
+		} `yaml:"vector_search"`
 	}
 }
 
