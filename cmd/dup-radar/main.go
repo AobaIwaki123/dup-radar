@@ -44,13 +44,6 @@ func main() {
 	bqClient := storage.NewBQClient(ctx, cfg)
 	log.Printf("DEBUG: GitHub and BigQuery clients initialized")
 
-	// Ensure BigQuery table with vector search is ready
-	// log.Printf("DEBUG: Setting up BigQuery table with vector search capabilities")
-	// if err := bqClient.EnsureTableWithVectorSearch(ctx); err != nil {
-	// 	log.Fatalf("ERROR: Failed to create BigQuery table with vector search: %v", err)
-	// }
-	// log.Printf("DEBUG: BigQuery table with vector search is ready")
-
 	secret := os.Getenv("GITHUB_WEBHOOK_SECRET")
 	if secret == "" {
 		log.Fatal("ERROR: GITHUB_WEBHOOK_SECRET not set")
