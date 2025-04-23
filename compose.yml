@@ -1,0 +1,7 @@
+services:
+  cloudflare:
+    image: "cloudflare/cloudflared:2025.4.0"
+    container_name: "cloudflare"
+    volumes: [ './cloudflare:/home/nonroot/.cloudflared' ]
+    command: tunnel run
+    restart: unless-stopped
