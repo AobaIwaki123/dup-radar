@@ -18,18 +18,95 @@ import (
 // Response represents the structure of Vertex AI embedding API response
 type embedResp struct {
 	Predictions []struct {
-		Embedding []float64 `json:"embedding"`
+		Embeddings struct {
+			Values     []float64 `json:"values"`
+			Statistics struct {
+				TokenCount int  `json:"token_count"`
+				Truncated  bool `json:"truncated"`
+			} `json:"statistics"`
+		} `json:"embeddings"`
 	} `json:"predictions"`
 }
 
+// Request structure for Vertex AI embedding API
+type embedReq struct {
+	Instances []instanceReq `json:"instances"`
+}
+
+// instanceReq represents a single embedding request instance
+type instanceReq struct {
+	TaskType string `json:"task_type,omitempty"`
+	Title    string `json:"title,omitempty"`
+	Content  string `json:"content"`
+}
+
+// TaskType defines the different types of embedding tasks
+type TaskType string
+
+const (
+	// Task type constants as defined by Vertex AI
+	TaskTypeRetrievalQuery     TaskType = "RETRIEVAL_QUERY"
+	TaskTypeRetrievalDocument  TaskType = "RETRIEVAL_DOCUMENT"
+	TaskTypeSemanticSimilarity TaskType = "SEMANTIC_SIMILARITY"
+	TaskTypeClassification     TaskType = "CLASSIFICATION"
+	TaskTypeClustering         TaskType = "CLUSTERING"
+	TaskTypeQuestionAnswering  TaskType = "QUESTION_ANSWERING"
+	TaskTypeFactVerification   TaskType = "FACT_VERIFICATION"
+	TaskTypeCodeRetrievalQuery TaskType = "CODE_RETRIEVAL_QUERY"
+)
+
+// buildVertexAIEndpoint constructs the Vertex AI API endpoint URL
+func buildVertexAIEndpoint(cfg *config.Config) string {
+	region := strings.ToLower(cfg.GCP.Region)
+	return fmt.Sprintf(
+		"https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models/%s:predict",
+		region,
+		cfg.GCP.ProjectID,
+		region,
+		cfg.GCP.EmbeddingModel,
+	)
+}
+
+// EmbeddingResult contains the embedding vector and metadata
+type EmbeddingResult struct {
+	Embedding  []float64
+	TokenCount int
+	Truncated  bool
+}
+
 // CreateEmbedding creates a vector embedding for the given text using Vertex AI
+// Defaults to RETRIEVAL_DOCUMENT task type
 func CreateEmbedding(ctx context.Context, cfg *config.Config, text string) ([]float64, error) {
+	result, err := CreateEmbeddingWithOptions(ctx, cfg, text, string(TaskTypeRetrievalDocument), "")
+	if err != nil {
+		return nil, err
+	}
+	return result.Embedding, nil
+}
+
+// CreateEmbeddingWithOptions creates a vector embedding with specific task type and title
+func CreateEmbeddingWithOptions(ctx context.Context, cfg *config.Config, text, taskType, title string) (*EmbeddingResult, error) {
 	log.Printf("DEBUG: Creating embedding for text (length: %d characters)", len(text))
-	endpoint := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models/%s:predict",
-		strings.ToLower(cfg.GCP.Region), cfg.GCP.ProjectID, strings.ToLower(cfg.GCP.Region), cfg.GCP.EmbeddingModel)
+	
+	endpoint := buildVertexAIEndpoint(cfg)
 	log.Printf("DEBUG: Using Vertex AI endpoint: %s", endpoint)
 
-	body, _ := json.Marshal(map[string]any{"instances": []map[string]string{{"content": text}}})
+	// Create a properly structured request according to Vertex AI documentation
+	request := embedReq{
+		Instances: []instanceReq{
+			{
+				TaskType: taskType,
+				Title:    title,
+				Content:  text,
+			},
+		},
+	}
+	
+	body, err := json.Marshal(request)
+	if err != nil {
+		log.Printf("ERROR: Failed to marshal request: %v", err)
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
 	log.Printf("DEBUG: Request payload size: %d bytes", len(body))
 
 	req, _ := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewReader(body))
@@ -67,7 +144,15 @@ func CreateEmbedding(ctx context.Context, cfg *config.Config, text string) ([]fl
 		return nil, fmt.Errorf("vertex api: empty predictions")
 	}
 
-	embeddingSize := len(out.Predictions[0].Embedding)
-	log.Printf("DEBUG: Successfully created embedding with %d dimensions", embeddingSize)
-	return out.Predictions[0].Embedding, nil
+	result := &EmbeddingResult{
+		Embedding:  out.Predictions[0].Embeddings.Values,
+		TokenCount: out.Predictions[0].Embeddings.Statistics.TokenCount,
+		Truncated:  out.Predictions[0].Embeddings.Statistics.Truncated,
+	}
+
+	embeddingSize := len(result.Embedding)
+	log.Printf("DEBUG: Successfully created embedding with %d dimensions (tokens: %d, truncated: %v)", 
+		embeddingSize, result.TokenCount, result.Truncated)
+	
+	return result, nil
 }
