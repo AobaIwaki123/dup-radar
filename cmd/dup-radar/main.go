@@ -22,10 +22,10 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/aoba/dup-radar/internal/config"
-	"github.com/aoba/dup-radar/internal/github"
-	"github.com/aoba/dup-radar/internal/storage"
-	"github.com/aoba/dup-radar/internal/webhook"
+	"github.com/AobaIwaki123/dup-radar/internal/config"
+	"github.com/AobaIwaki123/dup-radar/internal/github"
+	"github.com/AobaIwaki123/dup-radar/internal/storage"
+	"github.com/AobaIwaki123/dup-radar/internal/webhook"
 	"github.com/joho/godotenv"
 )
 

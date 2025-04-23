@@ -6,18 +6,16 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/AobaIwaki123/dup-radar/internal/config"
 	"github.com/AobaIwaki123/dup-radar/internal/embedding"
-	"github.com/AobaIwaki123/dup-radar/internal/github"
+	ghclient "github.com/AobaIwaki123/dup-radar/internal/github"
 	"github.com/AobaIwaki123/dup-radar/internal/storage"
-	"github.com/google/go-github/v62/github"
+	githubapi "github.com/google/go-github/v62/github"
 )
 
 // Handler handles GitHub webhooks
@@ -81,17 +79,17 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("DEBUG: Webhook signature verified successfully")
 
-	eventType := github.WebHookType(r)
+	eventType := githubapi.WebHookType(r)
 	log.Printf("DEBUG: Webhook event type: %s", eventType)
 
-	event, err := github.ParseWebHook(eventType, payload)
+	event, err := githubapi.ParseWebHook(eventType, payload)
 	if err != nil {
 		log.Printf("ERROR: Failed to parse webhook payload: %v", err)
 		http.Error(w, "Failed to parse webhook payload", http.StatusBadRequest)
 		return
 	}
 
-	if evt, ok := event.(*github.IssuesEvent); ok {
+	if evt, ok := event.(*githubapi.IssuesEvent); ok {
 		action := evt.GetAction()
 		log.Printf("DEBUG: Received issues event with action: %s", action)
 		if action == "opened" {
@@ -114,7 +112,7 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleIssue processes new GitHub issues
-func (h *Handler) handleIssue(ctx context.Context, evt *github.IssuesEvent) {
+func (h *Handler) handleIssue(ctx context.Context, evt *githubapi.IssuesEvent) {
 	repoFull := evt.GetRepo().GetFullName()
 	issue := evt.GetIssue()
 	issueNumber := issue.GetNumber()
