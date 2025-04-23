@@ -96,7 +96,7 @@ func embedText(ctx context.Context, cfg *Config, text string) ([]float64, error)
     req, _ := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewReader(body))
     req.Header.Set("Content-Type", "application/json")
     if key := os.Getenv("VERTEX_API_KEY"); key != "" {
-        req.Header.Set("X-Goog-Api-Key", key)
+        req.Header.Set("Authorization", "Bearer " + key)
     }
 
     resp, err := http.DefaultClient.Do(req)
