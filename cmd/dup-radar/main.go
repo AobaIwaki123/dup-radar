@@ -84,6 +84,12 @@ func newGitHubClient(ctx context.Context) *github.Client {
 
 // ---------------- Vertex AI embedding ----------------
 
+type embedResp struct {
+    Predictions []struct {
+        Embedding []float64 `json:"embedding"`
+    } `json:"predictions"`
+}
+
 func embedText(ctx context.Context, cfg *Config, text string) ([]float64, error) {
     endpoint := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models/%s:predict",
         strings.ToLower(cfg.GCP.Region), cfg.GCP.ProjectID, strings.ToLower(cfg.GCP.Region), cfg.GCP.EmbeddingModel)
@@ -106,13 +112,15 @@ func embedText(ctx context.Context, cfg *Config, text string) ([]float64, error)
         b, _ := io.ReadAll(resp.Body)
         return nil, fmt.Errorf("vertex api error: %s: %s", resp.Status, string(b))
     }
-    var out struct {
-        Predictions [][]float64 `json:"predictions"`
-    }
+
+    var out embedResp
     if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
         return nil, err
     }
-    return out.Predictions[0], nil
+    if len(out.Predictions) == 0 {
+        return nil, fmt.Errorf("vertex api: empty predictions")
+    }
+    return out.Predictions[0].Embedding, nil
 }
 
 // ---------------- BigQuery helpers ----------------
@@ -129,10 +137,8 @@ func newBQ(ctx context.Context, cfg *Config) *bqClient {
 }
 
 func (b *bqClient) searchSimilar(ctx context.Context, vec []float64, topK int) ([]int64, []float64, error) {
-    // Build SQL with VECTOR_SEARCH
     param := &bigquery.QueryParameter{Name: "query_vec", Value: vec}
-    q := b.client.Query(fmt.Sprintf(`SELECT issue_id, repo,
-        VECTOR_DISTANCE(embedding,@query_vec) AS dist
+    q := b.client.Query(fmt.Sprintf(`SELECT issue_id, VECTOR_DISTANCE(embedding,@query_vec) AS dist
         FROM %s.%s.%s
         ORDER BY dist
         LIMIT %d`, b.cfg.GCP.ProjectID, b.cfg.GCP.Dataset, b.cfg.GCP.Table, topK))
@@ -185,13 +191,12 @@ func main() {
     http.HandleFunc(cfg.Server.Path, func(w http.ResponseWriter, r *http.Request) {
         payload, err := io.ReadAll(r.Body)
         if err != nil { http.Error(w, "read", 400); return }
-        // signature header check
         sig := strings.TrimPrefix(r.Header.Get("X-Hub-Signature-256"), "sha256=")
         mac := hmac.New(sha256.New, sigKey)
         mac.Write(payload)
         expected := hex.EncodeToString(mac.Sum(nil))
         if !hmac.Equal([]byte(sig), []byte(expected)) {
-            http.Error(w, "invalid signature", 401)
+            http.Error(w, "invalid signature", http.StatusUnauthorized)
             return
         }
 
@@ -208,12 +213,12 @@ func main() {
         if p, err := strconv.Atoi(envPort); err == nil { port = p }
     }
     log.Printf("DupRadar listening on :%d%s", port, cfg.Server.Path)
-    log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", port), nil))
+    log.Fatal(http.ListenAndServe(fmt.Sprintf(":"+strconv.Itoa(port)), nil))
 }
 
 func handleIssue(ctx context.Context, gh *github.Client, bq *bqClient, cfg *Config, evt *github.IssuesEvent) {
-    repoFull := evt.GetRepo().GetFullName() // owner/repo
-    issue    := evt.GetIssue()
+    repoFull := evt.GetRepo().GetFullName()
+    issue := evt.GetIssue()
     text := issue.GetTitle() + "\n" + issue.GetBody()
 
     vec, err := embedText(ctx, cfg, text)
@@ -235,7 +240,7 @@ func handleIssue(ctx context.Context, gh *github.Client, bq *bqClient, cfg *Conf
 
 func buildComment(cfg *Config, ids []int64, dists []float64, repo string) string {
     if len(ids) == 0 || (len(dists) > 0 && dists[0] > cfg.GitHub.Similarity) {
-        return "" // 類似なし
+        return ""
     }
     var sb strings.Builder
     sb.WriteString("### 🤖 類似 Issue 候補\n\n")
