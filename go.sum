@@ -1,0 +1,9 @@
+module your-module-name
+
+require (
+    github.com/google/go-github v39.0.0+incompatible
+    google.golang.org/api v0.60.0
+    cloud.google.com/go/bigquery v1.12.0
+    github.com/gorilla/mux v1.8.0
+    github.com/joho/godotenv v1.4.0
+)

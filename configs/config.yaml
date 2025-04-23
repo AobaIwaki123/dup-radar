@@ -1,0 +1,5 @@
+threshold: 0.7
+table_name: "dup_radar_data"
+webhook_secret: "your_webhook_secret"
+vertex_ai_endpoint: "https://your_vertex_ai_endpoint"
+bigquery_dataset: "your_bigquery_dataset"
