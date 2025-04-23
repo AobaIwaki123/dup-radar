@@ -1,9 +1,9 @@
 package webhook
 
 import (
-    "encoding/json"
-    "net/http"
-    "log"
+	"encoding/json"
+	"log"
+	"net/http"
 )
 
 // WebhookPayload represents the structure of the GitHub webhook payload

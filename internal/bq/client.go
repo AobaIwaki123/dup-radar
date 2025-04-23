@@ -1,10 +1,10 @@
 package bq
 
 import (
-    "context"
-    "cloud.google.com/go/bigquery"
-    "fmt"
-    "log"
+	"context"
+	"fmt"
+
+	"cloud.google.com/go/bigquery"
 )
 
 type Client struct {

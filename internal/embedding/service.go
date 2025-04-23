@@ -1,9 +1,10 @@
 package embedding
 
 import (
-    "context"
-    "encoding/json"
-    "net/http"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
 )
 
 type VertexAIClient struct {
