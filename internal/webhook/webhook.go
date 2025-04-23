@@ -6,6 +6,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -35,6 +36,24 @@ func NewHandler(cfg *config.Config, gh *ghclient.Client, bq *storage.BQClient, s
 		bqClient:   bq,
 		signingKey: []byte(secret),
 	}
+}
+
+// SetupServer creates and configures an HTTP server for webhook handling
+func SetupServer(cfg *config.Config, gh *ghclient.Client, bq *storage.BQClient, secret string, port int) *http.Server {
+	log.Printf("DEBUG: Setting up HTTP server on port %d", port)
+	
+	handler := NewHandler(cfg, gh, bq, secret)
+	
+	mux := http.NewServeMux()
+	mux.HandleFunc("/webhook", handler.HandleWebhook)
+	
+	server := &http.Server{
+		Addr:    fmt.Sprintf(":%d", port),
+		Handler: mux,
+	}
+	
+	log.Printf("DEBUG: HTTP server configured on port %d", port)
+	return server
 }
 
 // HandleWebhook processes GitHub webhook requests
