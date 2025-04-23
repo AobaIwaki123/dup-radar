@@ -17,26 +17,26 @@ package main
 // Config file: configs/config.yaml (see README)
 
 import (
-	"bytes"
-	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
-	"fmt"
-	"io"
-	"log"
-	"net/http"
-	"os"
-	"strconv"
-	"strings"
+    "bytes"
+    "context"
+    "crypto/hmac"
+    "crypto/sha256"
+    "encoding/hex"
+    "encoding/json"
+    "fmt"
+    "io"
+    "log"
+    "net/http"
+    "os"
+    "strconv"
+    "strings"
 
-	"cloud.google.com/go/bigquery"
-	"github.com/google/go-github/v62/github"
-	"github.com/joho/godotenv"
-	"golang.org/x/oauth2"
-	"google.golang.org/api/iterator"
-	"gopkg.in/yaml.v3"
+    "cloud.google.com/go/bigquery"
+    "github.com/google/go-github/v62/github"
+    "github.com/joho/godotenv"
+    "golang.org/x/oauth2"
+    "google.golang.org/api/iterator"
+    "gopkg.in/yaml.v3"
 )
 
 // ---------------- Configuration ----------------
@@ -137,14 +137,19 @@ func newBQ(ctx context.Context, cfg *Config) *bqClient {
 }
 
 func (b *bqClient) searchSimilar(ctx context.Context, vec []float64, topK int) ([]int64, []float64, error) {
-    param := &bigquery.QueryParameter{Name: "query_vec", Value: vec}
-    q := b.client.Query(fmt.Sprintf(`SELECT issue_id, VECTOR_DISTANCE(embedding,@query_vec) AS dist
+    // Use BigQuery ML.DISTANCE (generally available) instead of VECTOR_DISTANCE.
+    q := b.client.Query(fmt.Sprintf(`SELECT issue_id,
+        ML.DISTANCE(embedding, @query_vec, 'COSINE') AS dist
         FROM %s.%s.%s
         ORDER BY dist
-        LIMIT %d`, b.cfg.GCP.ProjectID, b.cfg.GCP.Dataset, b.cfg.GCP.Table, topK))
-    q.Parameters = []bigquery.QueryParameter{*param}
+        LIMIT %d`,
+        b.cfg.GCP.ProjectID, b.cfg.GCP.Dataset, b.cfg.GCP.Table, topK))
+    q.Parameters = []bigquery.QueryParameter{{Name: "query_vec", Value: vec}}
+
     it, err := q.Read(ctx)
-    if err != nil { return nil, nil, err }
+    if err != nil {
+        return nil, nil, err
+    }
     var ids []int64
     var dists []float64
     for {
@@ -153,8 +158,12 @@ func (b *bqClient) searchSimilar(ctx context.Context, vec []float64, topK int) (
             Dist    float64 `bigquery:"dist"`
         }
         err := it.Next(&row)
-        if err == iterator.Done { break }
-        if err != nil { return nil, nil, err }
+        if err == iterator.Done {
+            break
+        }
+        if err != nil {
+            return nil, nil, err
+        }
         ids = append(ids, row.IssueID)
         dists = append(dists, row.Dist)
     }
