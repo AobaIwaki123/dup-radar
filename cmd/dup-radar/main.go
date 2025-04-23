@@ -4,7 +4,7 @@ package main
 // -------------------------------------
 // - Receives GitHub issues.opened webhooks (HMAC‑SHA256 verified)
 // - Creates an embedding with Vertex AI text‑embedding‑005 (API Key or ADC)
-// - Searches BigQuery VECTOR_SEARCH() for similar issues
+// - Searches BigQuery ML.DISTANCE for similar issues
 // - Comments top‑k similar issues if distance below threshold
 // - Stores the new issue vector back into BigQuery
 //
@@ -30,6 +30,7 @@ import (
     "os"
     "strconv"
     "strings"
+    "time"
 
     "cloud.google.com/go/bigquery"
     "github.com/google/go-github/v62/github"
@@ -94,10 +95,7 @@ func embedText(ctx context.Context, cfg *Config, text string) ([]float64, error)
     endpoint := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models/%s:predict",
         strings.ToLower(cfg.GCP.Region), cfg.GCP.ProjectID, strings.ToLower(cfg.GCP.Region), cfg.GCP.EmbeddingModel)
 
-    reqBody := map[string]any{
-        "instances": []map[string]string{{"content": text}},
-    }
-    body, _ := json.Marshal(reqBody)
+    body, _ := json.Marshal(map[string]any{"instances": []map[string]string{{"content": text}}})
 
     req, _ := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewReader(body))
     req.Header.Set("Content-Type", "application/json")
@@ -137,7 +135,6 @@ func newBQ(ctx context.Context, cfg *Config) *bqClient {
 }
 
 func (b *bqClient) searchSimilar(ctx context.Context, vec []float64, topK int) ([]int64, []float64, error) {
-    // Use BigQuery ML.DISTANCE (generally available) instead of VECTOR_DISTANCE.
     q := b.client.Query(fmt.Sprintf(`SELECT issue_id,
         ML.DISTANCE(embedding, @query_vec, 'COSINE') AS dist
         FROM %s.%s.%s
@@ -147,9 +144,7 @@ func (b *bqClient) searchSimilar(ctx context.Context, vec []float64, topK int) (
     q.Parameters = []bigquery.QueryParameter{{Name: "query_vec", Value: vec}}
 
     it, err := q.Read(ctx)
-    if err != nil {
-        return nil, nil, err
-    }
+    if err != nil { return nil, nil, err }
     var ids []int64
     var dists []float64
     for {
@@ -157,36 +152,46 @@ func (b *bqClient) searchSimilar(ctx context.Context, vec []float64, topK int) (
             IssueID int64   `bigquery:"issue_id"`
             Dist    float64 `bigquery:"dist"`
         }
-        err := it.Next(&row)
-        if err == iterator.Done {
-            break
-        }
-        if err != nil {
+        switch err := it.Next(&row); err {
+        case iterator.Done:
+            return ids, dists, nil
+        case nil:
+            ids = append(ids, row.IssueID)
+            dists = append(dists, row.Dist)
+        default:
             return nil, nil, err
         }
-        ids = append(ids, row.IssueID)
-        dists = append(dists, row.Dist)
     }
-    return ids, dists, nil
+}
+
+// BigQuery row definition
+
+type issueRow struct {
+    Repo      string    `bigquery:"repo"`
+    IssueID   int64     `bigquery:"issue_id"`
+    Title     string    `bigquery:"title"`
+    Body      string    `bigquery:"body"`
+    CreatedAt time.Time `bigquery:"created_at"`
+    Embedding []float64 `bigquery:"embedding"`
 }
 
 func (b *bqClient) insertVector(ctx context.Context, issue *github.Issue, repo string, vec []float64) error {
-    u := b.client.Dataset(b.cfg.GCP.Dataset).Table(b.cfg.GCP.Table).Inserter()
-    item := map[string]any{
-        "repo":       repo,
-        "issue_id":   issue.GetNumber(),
-        "title":      issue.GetTitle(),
-        "body":       issue.GetBody(),
-        "created_at": issue.GetCreatedAt(),
-        "embedding":  vec,
+    ins := b.client.Dataset(b.cfg.GCP.Dataset).Table(b.cfg.GCP.Table).Inserter()
+    row := &issueRow{
+        Repo:      repo,
+        IssueID:   int64(issue.GetNumber()),
+        Title:     issue.GetTitle(),
+        Body:      issue.GetBody(),
+        CreatedAt: issue.GetCreatedAt().Time,
+        Embedding: vec,
     }
-    return u.Put(ctx, item)
+    return ins.Put(ctx, row)
 }
 
 // ---------------- Webhook handler ----------------
 
 func main() {
-    _ = godotenv.Load() // ignore error if .env absent
+    _ = godotenv.Load()
     cfg := loadConfig("configs/config.yaml")
 
     ctx := context.Background()
@@ -222,7 +227,7 @@ func main() {
         if p, err := strconv.Atoi(envPort); err == nil { port = p }
     }
     log.Printf("DupRadar listening on :%d%s", port, cfg.Server.Path)
-    log.Fatal(http.ListenAndServe(fmt.Sprintf(":"+strconv.Itoa(port)), nil))
+    log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", port), nil))
 }
 
 func handleIssue(ctx context.Context, gh *github.Client, bq *bqClient, cfg *Config, evt *github.IssuesEvent) {
@@ -230,33 +235,38 @@ func handleIssue(ctx context.Context, gh *github.Client, bq *bqClient, cfg *Conf
     issue := evt.GetIssue()
     text := issue.GetTitle() + "\n" + issue.GetBody()
 
+    // 1) Embed
     vec, err := embedText(ctx, cfg, text)
     if err != nil { log.Printf("embed error: %v", err); return }
 
+    // 2) Search similar
     ids, dists, err := bq.searchSimilar(ctx, vec, cfg.GitHub.TopK)
     if err != nil { log.Printf("bq search: %v", err) }
 
-    message := buildComment(cfg, ids, dists, repoFull)
-    if message != "" {
-        _, _, err := gh.Issues.CreateComment(ctx, evt.GetRepo().GetOwner().GetLogin(), evt.GetRepo().GetName(), issue.GetNumber(), &github.IssueComment{Body: &message})
+    // 3) Comment if similar found
+    if msg := buildComment(cfg, ids, dists); msg != "" {
+        owner := evt.GetRepo().GetOwner().GetLogin()
+        repo := evt.GetRepo().GetName()
+        _, _, err := gh.Issues.CreateComment(ctx, owner, repo, issue.GetNumber(), &github.IssueComment{Body: &msg})
         if err != nil { log.Printf("comment error: %v", err) }
     }
 
+    // 4) Insert vector
     if err := bq.insertVector(ctx, issue, repoFull, vec); err != nil {
         log.Printf("insert bq: %v", err)
     }
 }
 
-func buildComment(cfg *Config, ids []int64, dists []float64, repo string) string {
+func buildComment(cfg *Config, ids []int64, dists []float64) string {
     if len(ids) == 0 || (len(dists) > 0 && dists[0] > cfg.GitHub.Similarity) {
-        return ""
+        return "" // no similar issues
     }
     var sb strings.Builder
     sb.WriteString("### 🤖 類似 Issue 候補\n\n")
     for i, id := range ids {
         if i >= len(dists) || dists[i] > cfg.GitHub.Similarity { break }
-        sb.WriteString(fmt.Sprintf("* #%d (dist %.3f)\n", id, dists[i]))
+        sb.WriteString(fmt.Sprintf("* #%d (距離 %.3f)\n", id, dists[i]))
     }
-    sb.WriteString("\n_This comment was generated by DupRadar_\n")
+    sb.WriteString("\n_Comment generated by DupRadar_\n")
     return sb.String()
 }
